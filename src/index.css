@@ -1,0 +1,16 @@
+:root {
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: #21382d;
+  background: #f3f1e8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+html { background: #f3f1e8; }
+body { margin: 0; min-height: 100vh; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 3px solid rgba(94, 132, 97, .28); outline-offset: 2px; }
+img { display: block; max-width: 100%; }
+#root { min-height: 100vh; }
