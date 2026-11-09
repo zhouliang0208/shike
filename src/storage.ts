@@ -19,8 +19,14 @@ export async function loadAppState<T>(): Promise<T | null> {
   const database = await openDatabase()
   return new Promise((resolve, reject) => {
     const request = database.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(STATE_KEY)
-    request.onsuccess = () => resolve((request.result as T | undefined) ?? null)
-    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      resolve((request.result as T | undefined) ?? null)
+      database.close()
+    }
+    request.onerror = () => {
+      reject(request.error)
+      database.close()
+    }
   })
 }
 
@@ -29,7 +35,18 @@ export async function saveAppState(state: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, 'readwrite')
     transaction.objectStore(STORE_NAME).put(state, STATE_KEY)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
+    transaction.oncomplete = () => {
+      resolve()
+      database.close()
+    }
+    transaction.onerror = () => {
+      reject(transaction.error)
+      database.close()
+    }
   })
+}
+
+export async function requestPersistentStorage(): Promise<boolean | null> {
+  if (!navigator.storage?.persist) return null
+  return navigator.storage.persist()
 }

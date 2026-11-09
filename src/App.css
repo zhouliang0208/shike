@@ -15,6 +15,11 @@
 .brand { border: 0; background: none; padding: 0; display: flex; align-items: center; gap: 9px; color: var(--forest); font-family: Georgia, "Songti SC", serif; font-size: 27px; font-weight: 800; letter-spacing: 2px; }
 .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--forest); color: white; }
 .date-chip { display: flex; align-items: center; gap: 6px; border: 1px solid #dfe3d7; color: #607067; background: rgba(255,255,255,.56); border-radius: 999px; padding: 8px 11px; font-size: 13px; }
+.date-chip input { width: 104px; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
+.compact-date-toolbar { margin-bottom: 16px; }
+.storage-alert { margin: 0 0 14px; padding: 10px 12px; border: 1px solid #e7b6a9; border-radius: 12px; background: #fff2ee; color: #8c382b; font-size: 13px; }
+.save-status { position: fixed; z-index: 20; right: 14px; bottom: 76px; padding: 6px 10px; border-radius: 999px; background: rgba(39,80,61,.9); color: white; font-size: 11px; pointer-events: none; opacity: .82; }
+.save-status.error { background: #a54435; }
 .page-wrap { width: min(100% - 32px, 1120px); margin: 0 auto; }
 .page-heading { padding: 29px 2px 20px; }
 .page-heading p, .section-title span, .card-title span { margin: 0 0 5px; font-size: 12px; color: var(--sage); font-weight: 700; letter-spacing: .8px; }

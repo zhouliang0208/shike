@@ -5,7 +5,7 @@ import {
   Sparkles, Sprout, Trash2, Upload, Utensils, X,
 } from 'lucide-react'
 import './App.css'
-import { loadAppState, saveAppState } from './storage'
+import { loadAppState, requestPersistentStorage, saveAppState } from './storage'
 
 type Page = 'today' | 'list' | 'stats' | 'dishes'
 type Meal = '早餐' | '中餐' | '晚餐'
@@ -46,6 +46,12 @@ type ActualItem = {
 type PortionSettings = Record<Meal, number>
 type AppData = { dishes: Dish[]; planItems: PlanItem[]; actualItems: ActualItem[]; portions: PortionSettings }
 const initialPortions: PortionSettings = { 早餐: 1, 中餐: 1, 晚餐: 1 }
+const localDate = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+const formatDate = (date: string, options: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric' }) =>
+  new Intl.DateTimeFormat('zh-CN', options).format(new Date(`${date}T12:00:00`))
 
 const emptyDish: DishDraft = {
   name: '', category: '', description: '', image: '', meals: [], tags: [],
@@ -59,7 +65,7 @@ const navItems: { id: Page; label: string; icon: typeof Utensils }[] = [
   { id: 'dishes', label: '菜品设置', icon: Settings2 },
 ]
 const pageTitles: Record<Page, { eyebrow: string; title: string }> = {
-  today: { eyebrow: '11月8日 · 星期日', title: '今天想吃点什么？' },
+  today: { eyebrow: '一日三餐，认真记录', title: '今天想吃点什么？' },
   list: { eyebrow: '今日计划', title: '待选清单' },
   stats: { eyebrow: '饮食回顾', title: '吃得丰富，也吃得安心' },
   dishes: { eyebrow: '我的厨房', title: '菜品设置' },
@@ -73,6 +79,8 @@ function App() {
   const [actualItems, setActualItems] = useState<ActualItem[]>([])
   const [portions, setPortions] = useState<PortionSettings>(initialPortions)
   const [loaded, setLoaded] = useState(false)
+  const [selectedDate, setSelectedDate] = useState(localDate)
+  const [saveStatus, setSaveStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading')
 
   useEffect(() => {
     loadAppState<AppData>().then((data) => {
@@ -82,17 +90,22 @@ function App() {
         setActualItems(data.actualItems ?? [])
         setPortions(data.portions ?? initialPortions)
       }
-    }).finally(() => setLoaded(true))
+    }).catch(() => setSaveStatus('error')).finally(() => setLoaded(true))
+    void requestPersistentStorage()
   }, [])
 
   useEffect(() => {
-    if (loaded) void saveAppState({ dishes, planItems, actualItems, portions })
+    if (!loaded) return
+    setSaveStatus('saving')
+    void saveAppState({ dishes, planItems, actualItems, portions })
+      .then(() => setSaveStatus('saved'))
+      .catch(() => setSaveStatus('error'))
   }, [actualItems, dishes, loaded, planItems, portions])
 
   const addToPlan = (dish: Dish, selectedMeal: Meal) => {
     const { id: _dishId, ...snapshot } = dish
     setPlanItems((current) => [...current, {
-      id: Date.now(), dish: snapshot, meal: selectedMeal, date: '2026-11-08',
+      id: Date.now(), dish: snapshot, meal: selectedMeal, date: selectedDate,
       portion: Number(dish.defaultPortion.replace(/[^0-9.]/g, '')) || portions[selectedMeal], purchased: false,
     }])
   }
@@ -103,13 +116,14 @@ function App() {
         <button className="brand" type="button" onClick={() => setPage('today')}>
           <span className="brand-mark"><Leaf size={21} /></span><span>食刻</span>
         </button>
-        <div className="date-chip"><CalendarDays size={16} /> 11月8日</div>
+        <label className="date-chip"><CalendarDays size={16} /><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} aria-label="选择当前计划日期" /></label>
       </header>
       <main className="page-wrap">
         <section className="page-heading"><p>{pageTitles[page].eyebrow}</p><h1>{pageTitles[page].title}</h1></section>
-        {page === 'today' && <TodayPage meal={meal} setMeal={setMeal} dishes={dishes} planItems={planItems} addToPlan={addToPlan} onOpenDishes={() => setPage('dishes')} />}
-        {page === 'list' && <PlanPage planItems={planItems} setPlanItems={setPlanItems} onConfirm={(items) => setActualItems((current) => [...current, ...items])} savedCount={actualItems.length} />}
-        {page === 'stats' && <StatsPage actualItems={actualItems} />}
+        {saveStatus === 'error' && <p className="storage-alert">本地数据保存失败，请先导出备份并检查浏览器存储权限。</p>}
+        {page === 'today' && <TodayPage selectedDate={selectedDate} setSelectedDate={setSelectedDate} meal={meal} setMeal={setMeal} dishes={dishes} planItems={planItems} addToPlan={addToPlan} onOpenDishes={() => setPage('dishes')} />}
+        {page === 'list' && <PlanPage selectedDate={selectedDate} setSelectedDate={setSelectedDate} planItems={planItems} setPlanItems={setPlanItems} onConfirm={(items) => setActualItems((current) => [...current, ...items])} savedCount={actualItems.length} />}
+        {page === 'stats' && <StatsPage selectedDate={selectedDate} setSelectedDate={setSelectedDate} actualItems={actualItems} />}
         {page === 'dishes' && <DishesPage dishes={dishes} setDishes={setDishes} portions={portions} setPortions={setPortions} backup={{ dishes, planItems, actualItems, portions }} restore={(data) => { setDishes(data.dishes ?? []); setPlanItems(data.planItems ?? []); setActualItems(data.actualItems ?? []); setPortions(data.portions ?? initialPortions) }} />}
       </main>
       <nav className="bottom-nav" aria-label="主要导航">
@@ -120,11 +134,14 @@ function App() {
           </button>
         })}
       </nav>
+      <span className={`save-status ${saveStatus}`}>{saveStatus === 'loading' ? '正在读取本地数据' : saveStatus === 'saving' ? '正在保存' : saveStatus === 'saved' ? '已自动保存' : '保存失败'}</span>
     </div>
   )
 }
 
-function TodayPage({ meal, setMeal, dishes, planItems, addToPlan, onOpenDishes }: {
+function TodayPage({ selectedDate, setSelectedDate, meal, setMeal, dishes, planItems, addToPlan, onOpenDishes }: {
+  selectedDate: string
+  setSelectedDate: (date: string) => void
   meal: Meal
   setMeal: (meal: Meal) => void
   dishes: Dish[]
@@ -137,6 +154,7 @@ function TodayPage({ meal, setMeal, dishes, planItems, addToPlan, onOpenDishes }
   const categories = ['全部', ...Array.from(new Set(dishes.map((dish) => dish.category).filter(Boolean)))]
   const mealDishes = dishes.filter((dish) => (!dish.meals.length || dish.meals.includes(meal)) && (!query || dish.name.includes(query)) && (category === '全部' || dish.category === category))
   return <>
+    <DateToolbar label="选菜日期" date={selectedDate} setDate={setSelectedDate} />
     <section className="welcome-card">
       <div><span className="soft-label"><Sparkles size={14} /> 今日灵感</span><h2>好好吃饭，<br />就是生活的小确幸。</h2><p>从熟悉的味道里，挑选今天的一日三餐。</p></div>
       <div className="welcome-art" aria-hidden="true"><span>🥬</span><span>🍅</span><span>🥕</span></div>
@@ -158,13 +176,15 @@ function TodayPage({ meal, setMeal, dishes, planItems, addToPlan, onOpenDishes }
         <button type="button" onClick={onOpenDishes}><Plus size={17} /> 去添加菜品</button>
       </div> : <div className="dish-grid">{mealDishes.map((dish) => <article className="dish-card" key={dish.id}>
         <div className={`dish-image${dish.image ? '' : ' image-placeholder'}`}>{dish.image ? <img src={dish.image} alt={dish.name || '未命名菜品'} /> : <CookingPot size={34} />}{dish.category && <span>{dish.category}</span>}</div>
-        <div className="dish-copy"><div className="dish-name-row"><h3>{dish.name || '未命名菜品'}</h3><button type="button" className={planItems.some((item) => item.dish.name === dish.name && item.meal === meal) ? 'add-button selected' : 'add-button'} onClick={() => addToPlan(dish, meal)} aria-label={`加入${dish.name || '未命名菜品'}到${meal}`}>{planItems.some((item) => item.dish.name === dish.name && item.meal === meal) ? <Check size={19} /> : <Plus size={19} />}</button></div>{dish.description && <p>{dish.description}</p>}<div className="tag-row">{dish.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div>
+        <div className="dish-copy"><div className="dish-name-row"><h3>{dish.name || '未命名菜品'}</h3><button type="button" className={planItems.some((item) => item.dish.name === dish.name && item.meal === meal && item.date === selectedDate) ? 'add-button selected' : 'add-button'} onClick={() => addToPlan(dish, meal)} aria-label={`加入${dish.name || '未命名菜品'}到${meal}`}>{planItems.some((item) => item.dish.name === dish.name && item.meal === meal && item.date === selectedDate) ? <Check size={19} /> : <Plus size={19} />}</button></div>{dish.description && <p>{dish.description}</p>}<div className="tag-row">{dish.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div>
       </article>)}</div>}
     </section>
   </>
 }
 
-function PlanPage({ planItems, setPlanItems, onConfirm, savedCount }: {
+function PlanPage({ selectedDate, setSelectedDate, planItems, setPlanItems, onConfirm, savedCount }: {
+  selectedDate: string
+  setSelectedDate: (date: string) => void
   planItems: PlanItem[]
   setPlanItems: React.Dispatch<React.SetStateAction<PlanItem[]>>
   onConfirm: (items: ActualItem[]) => void
@@ -172,13 +192,14 @@ function PlanPage({ planItems, setPlanItems, onConfirm, savedCount }: {
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [actualDrafts, setActualDrafts] = useState<(ActualItem & { selected: boolean })[]>([])
+  const selectedPlanItems = planItems.filter((item) => item.date === selectedDate)
 
   const updatePlan = (id: number, changes: Partial<PlanItem>) => setPlanItems((current) => current.map((item) => item.id === id ? { ...item, ...changes } : item))
   const openConfirm = () => {
-    setActualDrafts(planItems.filter((item) => item.date === '2026-11-08').map((item) => ({ id: Date.now() + item.id, sourcePlanId: item.id, dish: item.dish, meal: item.meal, date: item.date, portion: item.portion, selected: true })))
+    setActualDrafts(planItems.filter((item) => item.date === selectedDate).map((item) => ({ id: Date.now() + item.id, sourcePlanId: item.id, dish: item.dish, meal: item.meal, date: item.date, portion: item.portion, selected: true })))
     setConfirmOpen(true)
   }
-  const addTemporary = () => setActualDrafts((current) => [...current, { id: Date.now(), dish: { ...emptyDish, name: '临时菜品' }, meal: '晚餐', date: '2026-11-08', portion: 1, selected: true }])
+  const addTemporary = () => setActualDrafts((current) => [...current, { id: Date.now(), dish: { ...emptyDish, name: '临时菜品' }, meal: '晚餐', date: selectedDate, portion: 1, selected: true }])
   const saveActualMenu = () => {
     const selected = actualDrafts.filter((item) => item.selected)
     onConfirm(selected.map(({ selected: _selected, ...item }) => item))
@@ -188,14 +209,15 @@ function PlanPage({ planItems, setPlanItems, onConfirm, savedCount }: {
   }
 
   return <>
-    <section className="summary-strip"><div><ShoppingBasket size={22} /><span><strong>{planItems.length}</strong> 道待选菜品</span></div><button type="button">11月8日 <ChevronRight size={16} /></button></section>
+    <DateToolbar label="待选日期" date={selectedDate} setDate={setSelectedDate} />
+    <section className="summary-strip"><div><ShoppingBasket size={22} /><span><strong>{planItems.filter((item) => item.date === selectedDate).length}</strong> 道待选菜品</span></div><span>{formatDate(selectedDate)} <ChevronRight size={16} /></span></section>
     {savedCount > 0 && <p className="saved-notice"><Check size={15} /> 本次已有 {savedCount} 道实际菜品保存到饮食记录</p>}
     <div className="plan-layout">
       <section className="plan-list">
         {(['早餐', '中餐', '晚餐'] as Meal[]).map((mealName) => {
           return <div className="meal-group" key={mealName}>
             <div className="meal-group-title"><div><span>{mealName === '早餐' ? '08:00' : mealName === '中餐' ? '12:00' : '18:30'}</span><h2>{mealName}</h2></div><button type="button"><CirclePlus size={18} /> 添加</button></div>
-            {!planItems.some((item) => item.meal === mealName) ? <p className="meal-empty">暂未选择{mealName}菜品</p> : planItems.filter((item) => item.meal === mealName).map((item) => <article className="plan-item" key={item.id}>
+            {!planItems.some((item) => item.meal === mealName && item.date === selectedDate) ? <p className="meal-empty">暂未选择{mealName}菜品</p> : planItems.filter((item) => item.meal === mealName && item.date === selectedDate).map((item) => <article className="plan-item" key={item.id}>
               <div className={`plan-thumb${item.dish.image ? '' : ' image-placeholder'}`}>{item.dish.image ? <img src={item.dish.image} alt={item.dish.name || '未命名菜品'} /> : <CookingPot size={23} />}</div>
               <div className="plan-item-main"><div><h3>{item.dish.name || '未命名菜品'}</h3><span>{item.dish.category || '未分类'}</span></div><div className="plan-controls">
                 <label>日期<input type="date" value={item.date} onChange={(event) => updatePlan(item.id, { date: event.target.value })} /></label>
@@ -206,10 +228,10 @@ function PlanPage({ planItems, setPlanItems, onConfirm, savedCount }: {
           </div>
         })}
       </section>
-      <aside className="confirm-card empty-confirm-card"><span><CookingPot size={18} /> 今日菜单</span><h2>{planItems.length ? '准备确认实际菜单' : '待选清单还是空的'}</h2><p>{planItems.length ? '只把真正制作的菜保存到饮食记录，未制作的菜可以继续保留。' : '先从首页挑选想做的菜，之后再来确认今天真正制作的菜单。'}</p><button type="button" disabled={!planItems.length} onClick={openConfirm}>确认今日实际菜单 <ChevronRight size={19} /></button></aside>
+      <aside className="confirm-card empty-confirm-card"><span><CookingPot size={18} /> 所选日期菜单</span><h2>{selectedPlanItems.length ? '准备确认实际菜单' : '待选清单还是空的'}</h2><p>{selectedPlanItems.length ? '只把真正制作的菜保存到饮食记录，未制作的菜可以继续保留。' : '先从首页挑选想做的菜，之后再来确认实际菜单。'}</p><button type="button" disabled={!selectedPlanItems.length} onClick={openConfirm}>确认实际菜单 <ChevronRight size={19} /></button></aside>
     </div>
     {confirmOpen && <div className="modal-backdrop" role="presentation"><section className="dish-modal actual-modal" role="dialog" aria-modal="true" aria-labelledby="actual-title">
-      <div className="modal-header"><div><span>11月8日</span><h2 id="actual-title">确认实际菜单</h2></div><button type="button" onClick={() => setConfirmOpen(false)} aria-label="关闭确认窗口"><X size={21} /></button></div>
+      <div className="modal-header"><div><span>{formatDate(selectedDate)}</span><h2 id="actual-title">确认实际菜单</h2></div><button type="button" onClick={() => setConfirmOpen(false)} aria-label="关闭确认窗口"><X size={21} /></button></div>
       <p className="optional-note">勾选真正制作的菜；未勾选的待选菜品会继续保留。</p>
       <div className="actual-list">{actualDrafts.map((item) => <article className={item.selected ? 'actual-item selected' : 'actual-item'} key={item.id}>
         <button type="button" className="actual-check" onClick={() => setActualDrafts((current) => current.map((value) => value.id === item.id ? { ...value, selected: !value.selected } : value))}>{item.selected && <Check size={17} />}</button>
@@ -223,8 +245,7 @@ function PlanPage({ planItems, setPlanItems, onConfirm, savedCount }: {
   </>
 }
 
-function StatsPage({ actualItems }: { actualItems: ActualItem[] }) {
-  const [selectedDate, setSelectedDate] = useState('2026-11-08')
+function StatsPage({ selectedDate, setSelectedDate, actualItems }: { selectedDate: string; setSelectedDate: (date: string) => void; actualItems: ActualItem[] }) {
   const selectedItems = actualItems.filter((item) => item.date === selectedDate)
   const selectedMonth = selectedDate.slice(0, 7)
   const monthItems = actualItems.filter((item) => item.date.startsWith(selectedMonth))
@@ -249,7 +270,7 @@ function StatsPage({ actualItems }: { actualItems: ActualItem[] }) {
   return <>
     <section className="history-toolbar">
       <div><span>历史菜单</span><h2>{selectedDateLabel}</h2></div>
-      <label className="date-picker"><CalendarDays size={17} /><input type="date" value={selectedDate} max="2026-11-08" onChange={(event) => setSelectedDate(event.target.value)} aria-label="选择饮食记录日期" /></label>
+      <label className="date-picker"><CalendarDays size={17} /><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} aria-label="选择饮食记录日期" /></label>
     </section>
     <section className="today-stats history-stats">
       <div className="stats-intro"><span className="soft-label"><Sprout size={14} /> 当日饮食</span><h2>{selectedItems.length ? `已确认 ${selectedItems.length} 道菜` : '这一天未记录'}</h2><p>{selectedItems.length ? `蛋白质来源：${selectedItems.flatMap((item) => item.dish.tags).filter((tag) => tag.includes('蛋白')).join('、') || '未填写'}；以下是当天真正确认过的菜单。` : '未记录不代表没有吃饭，只表示这一天没有保存实际菜单。'}</p></div>
@@ -266,6 +287,13 @@ function StatsPage({ actualItems }: { actualItems: ActualItem[] }) {
       </>}
     </section>
   </>
+}
+
+function DateToolbar({ label, date, setDate }: { label: string; date: string; setDate: (date: string) => void }) {
+  return <section className="history-toolbar compact-date-toolbar">
+    <div><span>{label}</span><h2>{formatDate(date, { month: 'long', day: 'numeric', weekday: 'short' })}</h2></div>
+    <label className="date-picker"><CalendarDays size={17} /><input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label={label} /></label>
+  </section>
 }
 
 function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore }: {
