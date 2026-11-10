@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   BarChart3, CalendarDays, Check, ChevronRight, CirclePlus, ClipboardList,
-  CookingPot, Download, ImagePlus, Leaf, Minus, Pencil, Plus, Search, Settings2, ShoppingBasket,
+  CookingPot, Crop, Download, ImagePlus, Leaf, Minus, Pencil, Plus, Search, Settings2, ShoppingBasket,
   Sparkles, Sprout, Trash2, Upload, Utensils, X,
 } from 'lucide-react'
 import './App.css'
@@ -45,6 +45,7 @@ type ActualItem = {
 
 type PortionSettings = Record<Meal, number>
 type AppData = { dishes: Dish[]; planItems: PlanItem[]; actualItems: ActualItem[]; portions: PortionSettings }
+type CropRegion = { id: number; x: number; y: number; width: number; height: number; name: string }
 const initialPortions: PortionSettings = { 早餐: 1, 中餐: 1, 晚餐: 1 }
 const localDate = () => {
   const now = new Date()
@@ -306,6 +307,7 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
 }) {
   const [dishQuery, setDishQuery] = useState('')
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [isBatchOpen, setIsBatchOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState<DishDraft>(emptyDish)
   const shown = dishes.filter((dish) => dish.name.includes(dishQuery.trim()))
@@ -357,7 +359,7 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
   }
 
   return <>
-    <section className="dish-tools"><label className="search-box"><Search size={19} /><input value={dishQuery} onChange={(event) => setDishQuery(event.target.value)} placeholder="搜索我的菜品" /></label><button className="primary-button" type="button" onClick={openCreate}><Plus size={19} /> 录入菜品</button></section>
+    <section className="dish-tools"><label className="search-box"><Search size={19} /><input value={dishQuery} onChange={(event) => setDishQuery(event.target.value)} placeholder="搜索我的菜品" /></label><div className="dish-tool-actions"><button className="batch-button" type="button" onClick={() => setIsBatchOpen(true)}><Crop size={18} /> 整桌录入</button><button className="primary-button" type="button" onClick={openCreate}><Plus size={19} /> 单个录入</button></div></section>
     <section className="entry-mode-card single-entry-card"><div><span className="soft-label"><CookingPot size={14} /> 菜品录入</span><h2>想写多少，就写多少</h2><p>所有信息都可以留空，之后也能随时补充或修改。</p></div><button type="button" onClick={openCreate}><Plus size={18} /> 开始录入</button></section>
     <section className="settings-grid"><article><h3>默认份量</h3><p>加入待选清单时使用，可随时修改。</p><div className="portion-settings">{(['早餐','中餐','晚餐'] as Meal[]).map((meal) => <label key={meal}>{meal}<input type="number" min="0.5" step="0.5" value={portions[meal]} onChange={(event) => setPortions((current) => ({ ...current, [meal]: Number(event.target.value) || .5 }))} /></label>)}</div></article><article><h3>数据备份</h3><p>导出全部本地数据，或从备份文件恢复。</p><div className="backup-actions"><button type="button" onClick={exportBackup}><Download size={16} />导出备份</button><label><Upload size={16} />恢复备份<input type="file" accept="application/json" onChange={(event) => importBackup(event.target.files?.[0])} /></label></div></article></section>
     <section className="section-block dishes-library"><div className="section-title"><div><span>共 {shown.length} 道</span><h2>我的菜品库</h2></div><button className="filter-button" type="button"><Settings2 size={16} /> 全部分类</button></div>{!shown.length ? <div className="empty-state library-empty"><CookingPot size={28} /><h3>{dishes.length ? '没有找到菜品' : '菜品库还是空的'}</h3><p>{dishes.length ? '换个菜名搜索试试。' : '点击“录入菜品”，从第一道家常菜开始建立自己的菜品库。'}</p></div> : <div className="library-grid">{shown.map((dish) => <article className="library-card" key={dish.id}>
@@ -365,6 +367,10 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
       <div><span>{dish.category || '未分类'}</span><h3>{dish.name || '未命名菜品'}</h3><p>{dish.meals.length ? dish.meals.join(' · ') : '全部餐次'}</p><div className="library-tags">{dish.tags.map((tag) => <i key={tag}>{tag}</i>)}</div></div>
       <div className="library-actions"><button type="button" onClick={() => openEdit(dish)} aria-label={`编辑${dish.name || '未命名菜品'}`}><Pencil size={16} /></button><button type="button" onClick={() => setDishes((current) => current.filter((item) => item.id !== dish.id))} aria-label={`删除${dish.name || '未命名菜品'}`}><Trash2 size={16} /></button></div>
     </article>)}</div>}</section>
+    {isBatchOpen && <BatchDishModal onClose={() => setIsBatchOpen(false)} onConfirm={(items) => {
+      setDishes((current) => [...current, ...items])
+      setIsBatchOpen(false)
+    }} />}
     {isFormOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setIsFormOpen(false)}>
       <section className="dish-modal" role="dialog" aria-modal="true" aria-labelledby="dish-form-title">
         <div className="modal-header"><div><span>{editingId === null ? '新增' : '编辑'}</span><h2 id="dish-form-title">录入菜品</h2></div><button type="button" onClick={() => setIsFormOpen(false)} aria-label="关闭录入窗口"><X size={21} /></button></div>
@@ -385,6 +391,97 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
       </section>
     </div>}
   </>
+}
+
+function BatchDishModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (dishes: Dish[]) => void }) {
+  const [source, setSource] = useState('')
+  const [regions, setRegions] = useState<CropRegion[]>([])
+  const [drawing, setDrawing] = useState<CropRegion | null>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
+  const startRef = useRef<{ x: number; y: number } | null>(null)
+
+  const pointFromEvent = (event: React.PointerEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    return {
+      x: Math.max(0, Math.min(100, (event.clientX - bounds.left) / bounds.width * 100)),
+      y: Math.max(0, Math.min(100, (event.clientY - bounds.top) / bounds.height * 100)),
+    }
+  }
+  const beginCrop = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const point = pointFromEvent(event)
+    startRef.current = point
+    setDrawing({ id: Date.now(), x: point.x, y: point.y, width: 0, height: 0, name: '' })
+  }
+  const moveCrop = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!startRef.current) return
+    const point = pointFromEvent(event)
+    const start = startRef.current
+    setDrawing((current) => current ? {
+      ...current,
+      x: Math.min(start.x, point.x),
+      y: Math.min(start.y, point.y),
+      width: Math.abs(point.x - start.x),
+      height: Math.abs(point.y - start.y),
+    } : null)
+  }
+  const finishCrop = () => {
+    if (drawing && drawing.width >= 4 && drawing.height >= 4) {
+      setRegions((current) => [...current, drawing])
+    }
+    startRef.current = null
+    setDrawing(null)
+  }
+  const selectPhoto = (file?: File) => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      setSource(String(reader.result || ''))
+      setRegions([])
+    }
+    reader.readAsDataURL(file)
+  }
+  const createCroppedImage = (region: CropRegion) => {
+    const image = imageRef.current
+    if (!image) return ''
+    const canvas = document.createElement('canvas')
+    const sx = image.naturalWidth * region.x / 100
+    const sy = image.naturalHeight * region.y / 100
+    const sw = image.naturalWidth * region.width / 100
+    const sh = image.naturalHeight * region.height / 100
+    const maxSide = 1200
+    const scale = Math.min(1, maxSide / Math.max(sw, sh))
+    canvas.width = Math.max(1, Math.round(sw * scale))
+    canvas.height = Math.max(1, Math.round(sh * scale))
+    canvas.getContext('2d')?.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', .82)
+  }
+  const confirm = () => {
+    const timestamp = Date.now()
+    onConfirm(regions.map((region, index) => ({
+      id: timestamp + index,
+      ...emptyDish,
+      name: region.name,
+      image: createCroppedImage(region),
+    })))
+  }
+  const shownRegions = drawing ? [...regions, drawing] : regions
+
+  return <div className="modal-backdrop" role="presentation">
+    <section className="dish-modal batch-modal" role="dialog" aria-modal="true" aria-labelledby="batch-title">
+      <div className="modal-header"><div><span>本地图片处理</span><h2 id="batch-title">整桌批量录入</h2></div><button type="button" onClick={onClose} aria-label="关闭批量录入"><X size={21} /></button></div>
+      <p className="optional-note">上传整桌照片后，用手指依次框住每一道菜。图片不会上传到网络。</p>
+      {!source ? <label className="table-photo-upload"><input type="file" accept="image/*" capture="environment" onChange={(event) => selectPhoto(event.target.files?.[0])} /><ImagePlus size={30} /><strong>拍摄或选择整桌照片</strong><span>建议从正上方拍摄，菜盘之间留出空隙</span></label> : <>
+        <div className="crop-instruction"><Crop size={17} /><span>在照片上按住并拖动，框住一道菜</span><label>重新选图<input type="file" accept="image/*" capture="environment" onChange={(event) => selectPhoto(event.target.files?.[0])} /></label></div>
+        <div className="crop-stage" onPointerDown={beginCrop} onPointerMove={moveCrop} onPointerUp={finishCrop} onPointerCancel={finishCrop}>
+          <img ref={imageRef} src={source} alt="等待裁剪的整桌照片" draggable={false} />
+          {shownRegions.map((region, index) => <span className="crop-region" key={region.id} style={{ left: `${region.x}%`, top: `${region.y}%`, width: `${region.width}%`, height: `${region.height}%` }}><b>{index + 1}</b></span>)}
+        </div>
+        {!regions.length ? <p className="crop-empty">还没有裁剪区域，请在照片中的菜盘上拖动画框。</p> : <div className="crop-list">{regions.map((region, index) => <div key={region.id}><span>{index + 1}</span><input value={region.name} onChange={(event) => setRegions((current) => current.map((item) => item.id === region.id ? { ...item, name: event.target.value } : item))} placeholder={`菜品${index + 1}名称（可留空）`} /><button type="button" onClick={() => setRegions((current) => current.filter((item) => item.id !== region.id))}><Trash2 size={16} /><span className="sr-only">删除裁剪区域</span></button></div>)}</div>}
+      </>}
+      <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button type="button" disabled={!regions.length} onClick={confirm}>确认添加 {regions.length || ''} 道菜</button></div>
+    </section>
+  </div>
 }
 
 export default App
