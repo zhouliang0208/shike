@@ -53,6 +53,24 @@ const localDate = () => {
 }
 const formatDate = (date: string, options: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric' }) =>
   new Intl.DateTimeFormat('zh-CN', options).format(new Date(`${date}T12:00:00`))
+const optimizeImage = (file: File, maxSide = 1200): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onerror = () => reject(reader.error)
+  reader.onload = () => {
+    const image = new Image()
+    image.onerror = () => reject(new Error('图片无法读取'))
+    image.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+      canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL('image/jpeg', .82))
+    }
+    image.src = String(reader.result || '')
+  }
+  reader.readAsDataURL(file)
+})
 
 const emptyDish: DishDraft = {
   name: '', category: '', description: '', image: '', meals: [], tags: [],
@@ -91,7 +109,8 @@ function App() {
         setActualItems(data.actualItems ?? [])
         setPortions(data.portions ?? initialPortions)
       }
-    }).catch(() => setSaveStatus('error')).finally(() => setLoaded(true))
+      setLoaded(true)
+    }).catch(() => setSaveStatus('error'))
     void requestPersistentStorage()
   }, [])
 
@@ -111,6 +130,19 @@ function App() {
     }])
   }
 
+  const saveDishesImmediately = async (nextDishes: Dish[]) => {
+    setSaveStatus('saving')
+    try {
+      await saveAppState({ dishes: nextDishes, planItems, actualItems, portions })
+      setDishes(nextDishes)
+      setSaveStatus('saved')
+      return true
+    } catch {
+      setSaveStatus('error')
+      return false
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -125,7 +157,7 @@ function App() {
         {page === 'today' && <TodayPage selectedDate={selectedDate} setSelectedDate={setSelectedDate} meal={meal} setMeal={setMeal} dishes={dishes} planItems={planItems} addToPlan={addToPlan} onOpenDishes={() => setPage('dishes')} />}
         {page === 'list' && <PlanPage selectedDate={selectedDate} setSelectedDate={setSelectedDate} planItems={planItems} setPlanItems={setPlanItems} onConfirm={(items) => setActualItems((current) => [...current, ...items])} savedCount={actualItems.length} />}
         {page === 'stats' && <StatsPage selectedDate={selectedDate} setSelectedDate={setSelectedDate} actualItems={actualItems} />}
-        {page === 'dishes' && <DishesPage dishes={dishes} setDishes={setDishes} portions={portions} setPortions={setPortions} backup={{ dishes, planItems, actualItems, portions }} restore={(data) => { setDishes(data.dishes ?? []); setPlanItems(data.planItems ?? []); setActualItems(data.actualItems ?? []); setPortions(data.portions ?? initialPortions) }} />}
+        {page === 'dishes' && <DishesPage dishes={dishes} saveDishes={saveDishesImmediately} portions={portions} setPortions={setPortions} backup={{ dishes, planItems, actualItems, portions }} restore={(data) => { setDishes(data.dishes ?? []); setPlanItems(data.planItems ?? []); setActualItems(data.actualItems ?? []); setPortions(data.portions ?? initialPortions) }} />}
       </main>
       <nav className="bottom-nav" aria-label="主要导航">
         {navItems.map((item) => {
@@ -297,9 +329,9 @@ function DateToolbar({ label, date, setDate }: { label: string; date: string; se
   </section>
 }
 
-function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore }: {
+function DishesPage({ dishes, saveDishes, portions, setPortions, backup, restore }: {
   dishes: Dish[]
-  setDishes: React.Dispatch<React.SetStateAction<Dish[]>>
+  saveDishes: (dishes: Dish[]) => Promise<boolean>
   portions: PortionSettings
   setPortions: React.Dispatch<React.SetStateAction<PortionSettings>>
   backup: AppData
@@ -311,6 +343,7 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
   const [isEntryChoiceOpen, setIsEntryChoiceOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState<DishDraft>(emptyDish)
+  const [isSavingDish, setIsSavingDish] = useState(false)
   const shown = dishes.filter((dish) => dish.name.includes(dishQuery.trim()))
 
   const openCreate = () => {
@@ -324,19 +357,23 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
     setDraft(values)
     setIsFormOpen(true)
   }
-  const saveDish = () => {
-    if (editingId === null) {
-      setDishes((current) => [...current, { id: Date.now(), ...draft }])
-    } else {
-      setDishes((current) => current.map((dish) => dish.id === editingId ? { id: editingId, ...draft } : dish))
-    }
-    setIsFormOpen(false)
+  const saveDish = async () => {
+    setIsSavingDish(true)
+    const nextDishes = editingId === null
+      ? [...dishes, { id: Date.now(), ...draft }]
+      : dishes.map((dish) => dish.id === editingId ? { id: editingId, ...draft } : dish)
+    const saved = await saveDishes(nextDishes)
+    setIsSavingDish(false)
+    if (saved) setIsFormOpen(false)
   }
-  const selectImage = (file?: File) => {
+  const selectImage = async (file?: File) => {
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => setDraft((current) => ({ ...current, image: String(reader.result || '') }))
-    reader.readAsDataURL(file)
+    try {
+      const image = await optimizeImage(file)
+      setDraft((current) => ({ ...current, image }))
+    } catch {
+      window.alert('这张图片无法读取，请换一张图片重试。')
+    }
   }
   const toggleMeal = (meal: Meal) => setDraft((current) => ({
     ...current,
@@ -365,22 +402,23 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
     <section className="section-block dishes-library"><div className="section-title"><div><span>共 {shown.length} 道</span><h2>我的菜品库</h2></div><button className="filter-button" type="button"><Settings2 size={16} /> 全部分类</button></div>{!shown.length ? <div className="empty-state library-empty"><CookingPot size={28} /><h3>{dishes.length ? '没有找到菜品' : '菜品库还是空的'}</h3><p>{dishes.length ? '换个菜名搜索试试。' : '点击“录入菜品”，从第一道家常菜开始建立自己的菜品库。'}</p></div> : <div className="library-grid">{shown.map((dish) => <article className="library-card" key={dish.id}>
       <div className={`library-image${dish.image ? '' : ' image-placeholder'}`}>{dish.image ? <img src={dish.image} alt={dish.name || '未命名菜品'} /> : <CookingPot size={25} />}</div>
       <div><span>{dish.category || '未分类'}</span><h3>{dish.name || '未命名菜品'}</h3><p>{dish.meals.length ? dish.meals.join(' · ') : '全部餐次'}</p><div className="library-tags">{dish.tags.map((tag) => <i key={tag}>{tag}</i>)}</div></div>
-      <div className="library-actions"><button type="button" onClick={() => openEdit(dish)} aria-label={`编辑${dish.name || '未命名菜品'}`}><Pencil size={16} /></button><button type="button" onClick={() => setDishes((current) => current.filter((item) => item.id !== dish.id))} aria-label={`删除${dish.name || '未命名菜品'}`}><Trash2 size={16} /></button></div>
+      <div className="library-actions"><button type="button" onClick={() => openEdit(dish)} aria-label={`编辑${dish.name || '未命名菜品'}`}><Pencil size={16} /></button><button type="button" onClick={() => void saveDishes(dishes.filter((item) => item.id !== dish.id))} aria-label={`删除${dish.name || '未命名菜品'}`}><Trash2 size={16} /></button></div>
     </article>)}</div>}</section>
     {isEntryChoiceOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setIsEntryChoiceOpen(false)}><section className="dish-modal entry-choice-modal" role="dialog" aria-modal="true" aria-labelledby="entry-choice-title">
       <div className="modal-header"><div><span>选择录入方式</span><h2 id="entry-choice-title">录入菜品</h2></div><button type="button" onClick={() => setIsEntryChoiceOpen(false)} aria-label="关闭录入方式选择"><X size={21} /></button></div>
       <div className="entry-choice-list"><button type="button" onClick={() => { setIsEntryChoiceOpen(false); openCreate() }}><span><Plus size={21} /></span><div><strong>单个录入</strong><small>填写一道菜的图片和信息</small></div><ChevronRight size={19} /></button><button type="button" onClick={() => { setIsEntryChoiceOpen(false); setIsBatchOpen(true) }}><span><Crop size={21} /></span><div><strong>整桌录入</strong><small>从一张照片裁剪多道菜</small></div><ChevronRight size={19} /></button></div>
     </section></div>}
-    {isBatchOpen && <BatchDishModal onClose={() => setIsBatchOpen(false)} onConfirm={(items) => {
-      setDishes((current) => [...current, ...items])
-      setIsBatchOpen(false)
+    {isBatchOpen && <BatchDishModal onClose={() => setIsBatchOpen(false)} onConfirm={async (items) => {
+      const saved = await saveDishes([...dishes, ...items])
+      if (saved) setIsBatchOpen(false)
+      return saved
     }} />}
     {isFormOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setIsFormOpen(false)}>
       <section className="dish-modal" role="dialog" aria-modal="true" aria-labelledby="dish-form-title">
         <div className="modal-header"><div><span>{editingId === null ? '新增' : '编辑'}</span><h2 id="dish-form-title">录入菜品</h2></div><button type="button" onClick={() => setIsFormOpen(false)} aria-label="关闭录入窗口"><X size={21} /></button></div>
         <p className="optional-note">所有项目均为选填，可以直接添加。</p>
         <div className="form-grid">
-          <label className="photo-field"><span>照片</span><input type="file" accept="image/*" onChange={(event) => selectImage(event.target.files?.[0])} />{draft.image ? <img src={draft.image} alt="菜品预览" /> : <span className="photo-placeholder"><ImagePlus size={24} />选择照片</span>}</label>
+          <label className="photo-field"><span>照片</span><input type="file" accept="image/*" onChange={(event) => void selectImage(event.target.files?.[0])} />{draft.image ? <img src={draft.image} alt="菜品预览" /> : <span className="photo-placeholder"><ImagePlus size={24} />选择照片</span>}</label>
           <label><span>菜品名称</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="例如：番茄炒蛋" /></label>
           <label><span>菜品分类</span><input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} placeholder="例如：家常菜" /></label>
           <fieldset><legend>适用餐次</legend><div className="meal-options">{(['早餐', '中餐', '晚餐'] as Meal[]).map((item) => <button type="button" key={item} className={draft.meals.includes(item) ? 'active' : ''} onClick={() => toggleMeal(item)}>{item}</button>)}</div></fieldset>
@@ -391,16 +429,17 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
           <label><span>烹饪方式</span><input value={draft.cookingMethod} onChange={(event) => setDraft({ ...draft, cookingMethod: event.target.value })} placeholder="例如：清炒、蒸煮" /></label>
           <label><span>默认份量</span><input value={draft.defaultPortion} onChange={(event) => setDraft({ ...draft, defaultPortion: event.target.value })} placeholder="例如：2份" /></label>
         </div>
-        <div className="modal-actions"><button type="button" onClick={() => setIsFormOpen(false)}>取消</button><button type="button" onClick={saveDish}>{editingId === null ? '添加菜品' : '保存修改'}</button></div>
+        <div className="modal-actions"><button type="button" onClick={() => setIsFormOpen(false)} disabled={isSavingDish}>取消</button><button type="button" onClick={() => void saveDish()} disabled={isSavingDish}>{isSavingDish ? '正在保存…' : editingId === null ? '添加菜品' : '保存修改'}</button></div>
       </section>
     </div>}
   </>
 }
 
-function BatchDishModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (dishes: Dish[]) => void }) {
+function BatchDishModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (dishes: Dish[]) => Promise<boolean> }) {
   const [source, setSource] = useState('')
   const [regions, setRegions] = useState<CropRegion[]>([])
   const [drawing, setDrawing] = useState<CropRegion | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
   const imageRef = useRef<HTMLImageElement>(null)
   const startRef = useRef<{ x: number; y: number } | null>(null)
 
@@ -460,14 +499,17 @@ function BatchDishModal({ onClose, onConfirm }: { onClose: () => void; onConfirm
     canvas.getContext('2d')?.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
     return canvas.toDataURL('image/jpeg', .82)
   }
-  const confirm = () => {
+  const confirm = async () => {
     const timestamp = Date.now()
-    onConfirm(regions.map((region, index) => ({
+    const dishes = regions.map((region, index) => ({
       id: timestamp + index,
       ...emptyDish,
       name: region.name,
       image: createCroppedImage(region),
-    })))
+    }))
+    setIsSaving(true)
+    const saved = await onConfirm(dishes)
+    if (!saved) setIsSaving(false)
   }
   const shownRegions = drawing ? [...regions, drawing] : regions
 
@@ -483,7 +525,7 @@ function BatchDishModal({ onClose, onConfirm }: { onClose: () => void; onConfirm
         </div>
         {!regions.length ? <p className="crop-empty">还没有裁剪区域，请在照片中的菜盘上拖动画框。</p> : <div className="crop-list">{regions.map((region, index) => <div key={region.id}><span>{index + 1}</span><input value={region.name} onChange={(event) => setRegions((current) => current.map((item) => item.id === region.id ? { ...item, name: event.target.value } : item))} placeholder={`菜品${index + 1}名称（可留空）`} /><button type="button" onClick={() => setRegions((current) => current.filter((item) => item.id !== region.id))}><Trash2 size={16} /><span className="sr-only">删除裁剪区域</span></button></div>)}</div>}
       </>}
-      <div className="modal-actions"><button type="button" onClick={onClose}>取消</button><button type="button" disabled={!regions.length} onClick={confirm}>确认添加 {regions.length || ''} 道菜</button></div>
+      <div className="modal-actions"><button type="button" onClick={onClose} disabled={isSaving}>取消</button><button type="button" disabled={!regions.length || isSaving} onClick={() => void confirm()}>{isSaving ? '正在保存…' : `确认添加 ${regions.length || ''} 道菜`}</button></div>
     </section>
   </div>
 }
