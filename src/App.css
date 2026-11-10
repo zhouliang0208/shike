@@ -51,18 +51,19 @@
 .section-title { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
 .section-title h2 { margin: 0; font-size: 21px; color: var(--forest-dark); }
 .section-title small { color: var(--muted); font-size: 12px; }
-.dish-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
-.dish-card { overflow: hidden; border: 1px solid rgba(42,74,55,.08); border-radius: 21px; background: var(--paper); }
-.dish-image { height: 178px; position: relative; overflow: hidden; }
+.dish-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dish-card { min-width: 0; overflow: hidden; border: 1px solid rgba(42,74,55,.08); border-radius: 16px; background: var(--paper); }
+.dish-image { height: auto; aspect-ratio: 1 / 1; position: relative; overflow: hidden; }
 .dish-image img { width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
 .dish-card:hover .dish-image img { transform: scale(1.025); }
-.dish-image > span { position: absolute; left: 12px; top: 12px; padding: 6px 9px; color: var(--forest-dark); background: rgba(255,253,247,.88); backdrop-filter: blur(6px); border-radius: 999px; font-size: 11px; font-weight: 700; }
-.dish-copy { padding: 15px 15px 16px; }
-.dish-name-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.dish-name-row h3, .plan-item h3, .library-card h3 { margin: 0; color: var(--forest-dark); font-size: 17px; }
-.add-button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 50%; color: white; background: var(--forest); }
+.dish-image > span { position: absolute; left: 8px; top: 8px; max-width: calc(100% - 16px); overflow: hidden; padding: 4px 7px; color: var(--forest-dark); background: rgba(255,253,247,.88); backdrop-filter: blur(6px); border-radius: 999px; font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.dish-copy { padding: 9px 9px 10px; }
+.dish-name-row { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.dish-name-row h3, .plan-item h3, .library-card h3 { margin: 0; color: var(--forest-dark); font-size: 14px; }
+.dish-name-row h3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.add-button { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 50%; color: white; background: var(--forest); }
 .add-button.selected { color: var(--forest); background: var(--lime); }
-.dish-copy > p { min-height: 40px; margin: 7px 0 11px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.dish-copy > p, .dish-copy > .tag-row { display: none; }
 .tag-row, .library-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .tag-row span, .library-tags i { padding: 5px 8px; border-radius: 999px; color: #667367; background: #eff1e8; font-size: 10px; font-style: normal; }
 .empty-state { padding: 50px 20px; text-align: center; color: #879188; border: 1px dashed #d8dbd0; border-radius: 20px; }
@@ -265,8 +266,8 @@
 .bottom-nav button i { position: absolute; top: 2px; left: calc(50% + 7px); min-width: 16px; height: 16px; padding: 0 3px; border: 2px solid var(--paper); border-radius: 99px; color: white; background: #d77b63; font-size: 8px; font-style: normal; line-height: 12px; }
 @media (min-width: 620px) {
   .page-wrap { width: min(100% - 48px, 1120px); }
-  .dish-grid, .library-grid, .report-grid { grid-template-columns: repeat(2, 1fr); }
-  .dish-image { height: 205px; }
+  .dish-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
+  .library-grid, .report-grid { grid-template-columns: repeat(2, 1fr); }
   .welcome-card { min-height: 240px; padding: 35px; }
   .welcome-card h2 { font-size: 31px; }
   .welcome-art { right: 20px; transform: scale(1.12); }
@@ -288,7 +289,7 @@
   .control-panel.empty-control-panel { display: block; }
   .control-panel .search-box { margin: 0; }
   .filter-row { grid-column: 1 / -1; }
-  .dish-grid { grid-template-columns: repeat(3, 1fr); }
+  .dish-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .plan-layout { grid-template-columns: minmax(0, 1.65fr) minmax(280px, .7fr); align-items: start; gap: 28px; }
   .confirm-card { position: sticky; top: 100px; margin-top: 20px; padding: 30px; }
   .today-stats { padding: 30px; display: grid; grid-template-columns: .85fr 1.2fr; gap: 24px; }
