@@ -308,6 +308,7 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
   const [dishQuery, setDishQuery] = useState('')
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isBatchOpen, setIsBatchOpen] = useState(false)
+  const [isEntryChoiceOpen, setIsEntryChoiceOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState<DishDraft>(emptyDish)
   const shown = dishes.filter((dish) => dish.name.includes(dishQuery.trim()))
@@ -359,14 +360,17 @@ function DishesPage({ dishes, setDishes, portions, setPortions, backup, restore 
   }
 
   return <>
-    <section className="dish-tools"><label className="search-box"><Search size={19} /><input value={dishQuery} onChange={(event) => setDishQuery(event.target.value)} placeholder="搜索我的菜品" /></label><div className="dish-tool-actions"><button className="batch-button" type="button" onClick={() => setIsBatchOpen(true)}><Crop size={18} /> 整桌录入</button><button className="primary-button" type="button" onClick={openCreate}><Plus size={19} /> 单个录入</button></div></section>
-    <section className="entry-mode-card single-entry-card"><div><span className="soft-label"><CookingPot size={14} /> 菜品录入</span><h2>想写多少，就写多少</h2><p>所有信息都可以留空，之后也能随时补充或修改。</p></div><button type="button" onClick={openCreate}><Plus size={18} /> 开始录入</button></section>
+    <section className="dish-tools"><label className="search-box"><Search size={19} /><input value={dishQuery} onChange={(event) => setDishQuery(event.target.value)} placeholder="搜索我的菜品" /></label><button className="primary-button" type="button" onClick={() => setIsEntryChoiceOpen(true)}><Plus size={19} /> 录入菜品</button></section>
     <section className="settings-grid"><article><h3>默认份量</h3><p>加入待选清单时使用，可随时修改。</p><div className="portion-settings">{(['早餐','中餐','晚餐'] as Meal[]).map((meal) => <label key={meal}>{meal}<input type="number" min="0.5" step="0.5" value={portions[meal]} onChange={(event) => setPortions((current) => ({ ...current, [meal]: Number(event.target.value) || .5 }))} /></label>)}</div></article><article><h3>数据备份</h3><p>导出全部本地数据，或从备份文件恢复。</p><div className="backup-actions"><button type="button" onClick={exportBackup}><Download size={16} />导出备份</button><label><Upload size={16} />恢复备份<input type="file" accept="application/json" onChange={(event) => importBackup(event.target.files?.[0])} /></label></div></article></section>
     <section className="section-block dishes-library"><div className="section-title"><div><span>共 {shown.length} 道</span><h2>我的菜品库</h2></div><button className="filter-button" type="button"><Settings2 size={16} /> 全部分类</button></div>{!shown.length ? <div className="empty-state library-empty"><CookingPot size={28} /><h3>{dishes.length ? '没有找到菜品' : '菜品库还是空的'}</h3><p>{dishes.length ? '换个菜名搜索试试。' : '点击“录入菜品”，从第一道家常菜开始建立自己的菜品库。'}</p></div> : <div className="library-grid">{shown.map((dish) => <article className="library-card" key={dish.id}>
       <div className={`library-image${dish.image ? '' : ' image-placeholder'}`}>{dish.image ? <img src={dish.image} alt={dish.name || '未命名菜品'} /> : <CookingPot size={25} />}</div>
       <div><span>{dish.category || '未分类'}</span><h3>{dish.name || '未命名菜品'}</h3><p>{dish.meals.length ? dish.meals.join(' · ') : '全部餐次'}</p><div className="library-tags">{dish.tags.map((tag) => <i key={tag}>{tag}</i>)}</div></div>
       <div className="library-actions"><button type="button" onClick={() => openEdit(dish)} aria-label={`编辑${dish.name || '未命名菜品'}`}><Pencil size={16} /></button><button type="button" onClick={() => setDishes((current) => current.filter((item) => item.id !== dish.id))} aria-label={`删除${dish.name || '未命名菜品'}`}><Trash2 size={16} /></button></div>
     </article>)}</div>}</section>
+    {isEntryChoiceOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setIsEntryChoiceOpen(false)}><section className="dish-modal entry-choice-modal" role="dialog" aria-modal="true" aria-labelledby="entry-choice-title">
+      <div className="modal-header"><div><span>选择录入方式</span><h2 id="entry-choice-title">录入菜品</h2></div><button type="button" onClick={() => setIsEntryChoiceOpen(false)} aria-label="关闭录入方式选择"><X size={21} /></button></div>
+      <div className="entry-choice-list"><button type="button" onClick={() => { setIsEntryChoiceOpen(false); openCreate() }}><span><Plus size={21} /></span><div><strong>单个录入</strong><small>填写一道菜的图片和信息</small></div><ChevronRight size={19} /></button><button type="button" onClick={() => { setIsEntryChoiceOpen(false); setIsBatchOpen(true) }}><span><Crop size={21} /></span><div><strong>整桌录入</strong><small>从一张照片裁剪多道菜</small></div><ChevronRight size={19} /></button></div>
+    </section></div>}
     {isBatchOpen && <BatchDishModal onClose={() => setIsBatchOpen(false)} onConfirm={(items) => {
       setDishes((current) => [...current, ...items])
       setIsBatchOpen(false)
@@ -471,8 +475,8 @@ function BatchDishModal({ onClose, onConfirm }: { onClose: () => void; onConfirm
     <section className="dish-modal batch-modal" role="dialog" aria-modal="true" aria-labelledby="batch-title">
       <div className="modal-header"><div><span>本地图片处理</span><h2 id="batch-title">整桌批量录入</h2></div><button type="button" onClick={onClose} aria-label="关闭批量录入"><X size={21} /></button></div>
       <p className="optional-note">上传整桌照片后，用手指依次框住每一道菜。图片不会上传到网络。</p>
-      {!source ? <label className="table-photo-upload"><input type="file" accept="image/*" capture="environment" onChange={(event) => selectPhoto(event.target.files?.[0])} /><ImagePlus size={30} /><strong>拍摄或选择整桌照片</strong><span>建议从正上方拍摄，菜盘之间留出空隙</span></label> : <>
-        <div className="crop-instruction"><Crop size={17} /><span>在照片上按住并拖动，框住一道菜</span><label>重新选图<input type="file" accept="image/*" capture="environment" onChange={(event) => selectPhoto(event.target.files?.[0])} /></label></div>
+      {!source ? <div className="table-photo-options"><p>建议从正上方拍摄，菜盘之间留出空隙。</p><label><input type="file" accept="image/*" capture="environment" onChange={(event) => selectPhoto(event.target.files?.[0])} /><ImagePlus size={25} /><strong>拍摄整桌照片</strong><span>打开手机相机拍摄</span></label><label><input type="file" accept="image/*" onChange={(event) => selectPhoto(event.target.files?.[0])} /><Upload size={25} /><strong>从手机相册选择</strong><span>使用已经拍好的照片</span></label></div> : <>
+        <div className="crop-instruction"><Crop size={17} /><span>在照片上按住并拖动，框住一道菜</span><button type="button" onClick={() => { setSource(''); setRegions([]) }}>重新选图</button></div>
         <div className="crop-stage" onPointerDown={beginCrop} onPointerMove={moveCrop} onPointerUp={finishCrop} onPointerCancel={finishCrop}>
           <img ref={imageRef} src={source} alt="等待裁剪的整桌照片" draggable={false} />
           {shownRegions.map((region, index) => <span className="crop-region" key={region.id} style={{ left: `${region.x}%`, top: `${region.y}%`, width: `${region.width}%`, height: `${region.height}%` }}><b>{index + 1}</b></span>)}
